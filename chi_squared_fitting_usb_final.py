@@ -36,28 +36,33 @@ def import_arrays(filepath):
         arrays.append([float(num) for num in array])
     arrays=np.array(arrays)
 
-    return arrays[:3]
+    return arrays[:2]
 
 # test data 
-fluorescein = import_arrays(r"C:\Users\wlmd95\OneDrive - Durham University\Documents\PhD\microscope\data_analysis\spectra files\fluorescein_total.txt")  
-nile_red = import_arrays(r"C:\Users\wlmd95\OneDrive - Durham University\Documents\PhD\microscope\data_analysis\spectra files\nile_red_total.txt")  
-combined_dataset_2 = import_arrays(r"C:\Users\wlmd95\OneDrive - Durham University\Documents\PhD\microscope\data_analysis\spectra files\mixed_spectrum_10_fluorescein.txt")  
-combined_dataset_1 = import_arrays(r"C:\Users\wlmd95\OneDrive - Durham University\Documents\PhD\microscope\data_analysis\spectra files\mixed_spectrum_21_fluorescein.txt")
+#fluorescein = import_arrays(r"C:\Users\wlmd95\OneDrive - Durham University\Documents\PhD\microscope\data_analysis\spectra files\fluorescein_total_txt_csv")  
+#nile_red = import_arrays(r"C:\Users\wlmd95\OneDrive - Durham University\Documents\PhD\microscope\data_analysis\spectra files\nile_red_total_txt_csv")  
+#combined_dataset_2 = import_arrays(r"C:\Users\wlmd95\OneDrive - Durham University\Documents\PhD\microscope\data_analysis\spectra files\mixed_spectrum_10_fluorescein_txt_csv")  
+#combined_dataset_1 = import_arrays(r"C:\Users\wlmd95\OneDrive - Durham University\Documents\PhD\microscope\data_analysis\spectra files\mixed_spectrum_21_fluorescein_txt_csv")
 
 
 
-#fluorescein = import_arrays(r"C:\Users\wlmd95\OneDrive - Durham University\Documents\PhD\L4_Project\MKID project\microscope_data\isabelle_microscope_test\240122\fluorescein_test.txt")  # Replace with the actual file path
-#nile_red = import_arrays(r"C:\Users\wlmd95\OneDrive - Durham University\Documents\PhD\L4_Project\MKID project\microscope_data\isabelle_microscope_test\240122\pink_fluoro_txt")  # Replace with the actual file path
-#combined_dataset_2 = import_arrays(r"C:\Users\wlmd95\OneDrive - Durham University\Documents\PhD\L4_Project\MKID project\microscope_data\isabelle_microscope_test\240123\nile_red_2_txt")  # Replace with the actual file path
-#combined_dataset_1 = import_arrays(r"C:\Users\wlmd95\OneDrive - Durham University\Documents\PhD\L4_Project\MKID project\microscope_data\isabelle_microscope_test\240125\mixed_13_txt")
-#kidney = import_arrays(r"C:\Users\wlmd95\OneDrive - Durham University\Documents\PhD\L4_Project\MKID project\microscope_data\\240311\kidney.txt")  # Replace with the actual file pat
+fluorescein = import_arrays(r"C:\Users\wlmd95\OneDrive - Durham University\Documents\PhD\L4_Project\MKID project\microscope_data\isabelle_microscope_test\240122\fluorescein_test.txt")  # Replace with the actual file path
+nile_red = import_arrays(r"C:\Users\wlmd95\OneDrive - Durham University\Documents\PhD\L4_Project\MKID project\microscope_data\isabelle_microscope_test\240122\pink_fluoro_txt")  # Replace with the actual file path
+combined_dataset_2 = import_arrays(r"C:\Users\wlmd95\OneDrive - Durham University\Documents\PhD\L4_Project\MKID project\microscope_data\isabelle_microscope_test\240123\nile_red_2_txt")  # Replace with the actual file path
+combined_dataset_1 = import_arrays(r"C:\Users\wlmd95\OneDrive - Durham University\Documents\PhD\L4_Project\MKID project\microscope_data\isabelle_microscope_test\240125\mixed_13_txt")
+kidney = import_arrays(r"C:\Users\wlmd95\OneDrive - Durham University\Documents\PhD\L4_Project\MKID project\microscope_data\\240311\kidney.txt")  # Replace with the actual file pat
 
+#print(fluorescein)
+#print(nile_red)
+#print(combined_dataset_2)
+#print(combined_dataset_1)
 
 #fitting process
 def fit_spectra_strength(variable, coef):
     spectrum1_strength = variable
     spectrum2_strength = 1 - spectrum1_strength  # Ensuring the sum is 1
     #print('shape coef', np.shape(coef))
+    #print('coef', coef)
     fluorescein, nile_red, combined_spectrum = coef 
     # Combine the pure spectra according to the provided strengths
     combined_spectrum_model = spectrum1_strength * fluorescein + spectrum2_strength * nile_red
@@ -75,9 +80,11 @@ def monte_carlo_estimate_errors(fitting_function, initial_guess, data, num_simul
         # Perturb the data by adding random noise
         noise = np.random.normal(loc=0, scale=noise_scale, size=data.shape)  # Adjust scale as needed
         perturbed_data = data + noise
+        perturbed_data = np.array(perturbed_data)
+        coef = np.array([fluorescein, nile_red, perturbed_data])
         
         # Perform the optimization process on the perturbed data
-        result = minimize(fitting_function, initial_guess, args=perturbed_data,
+        result = minimize(fitting_function, initial_guess, args=coef,
                           method='TNC', bounds=((0, 1),), tol=1e-6, #TNC needed for bounding
                           constraints={'type': 'eq', 'fun': constraint_sum_to_one},
                           options={'disp': False})
@@ -159,7 +166,7 @@ optimized_strength_spectrum2_2 = 1 - optimized_strength_spectrum1_2  # Calculati
 
 # Print the optimized strengths and their errors for each dataset
 print(f'Optimized strength for dataset 1 - Fluorescein: {optimized_strength_spectrum1_1} ± {parameter_errors_1}, Nile red: {optimized_strength_spectrum2_1} ± {parameter_errors_1}')
-#print(f'Optimized strength for dataset 2 - Fluroescein: {optimized_strength_spectrum1_2} ± {parameter_errors_2}, Nile red: {optimized_strength_spectrum2_2} ± {parameter_errors_2}')
+print(f'Optimized strength for dataset 2 - Fluroescein: {optimized_strength_spectrum1_2} ± {parameter_errors_2}, Nile red: {optimized_strength_spectrum2_2} ± {parameter_errors_2}')
 
 
 fluorescein, nile_red, combined_spectrum = coef 
