@@ -10,6 +10,8 @@ import numpy as np
 from scipy.optimize import minimize
 import matplotlib.pyplot as plt
 import re
+import csv
+
 
 def chi_squared(observed, expected, error):
     return np.sum((observed - expected) ** 2 / error**2)
@@ -38,19 +40,38 @@ def import_arrays(filepath):
 
     return arrays[:2]
 
+def read_csv(filename):
+    data = []
+    
+    # Open the file and read the data
+    with open(filename, 'r') as file:
+        reader = csv.reader(file)
+        header = next(reader)  # Skip the header row
+        
+        for row in reader:
+            try:
+                data.append([float(row[0]), float(row[1])])  # Convert to float and append
+            except ValueError:
+                continue  # Skip rows with non-numeric values
+
+    # Convert to a numpy array and transpose it to have 2 rows
+    data_array = np.array(data).T
+    
+    return data_array
+
 # test data 
-#fluorescein = import_arrays(r"C:\Users\wlmd95\OneDrive - Durham University\Documents\PhD\microscope\data_analysis\spectra files\fluorescein_total_txt_csv")  
-#nile_red = import_arrays(r"C:\Users\wlmd95\OneDrive - Durham University\Documents\PhD\microscope\data_analysis\spectra files\nile_red_total_txt_csv")  
-#combined_dataset_2 = import_arrays(r"C:\Users\wlmd95\OneDrive - Durham University\Documents\PhD\microscope\data_analysis\spectra files\mixed_spectrum_10_fluorescein_txt_csv")  
-#combined_dataset_1 = import_arrays(r"C:\Users\wlmd95\OneDrive - Durham University\Documents\PhD\microscope\data_analysis\spectra files\mixed_spectrum_21_fluorescein_txt_csv")
+fluorescein = read_csv(r"C:\Users\wlmd95\OneDrive - Durham University\Documents\PhD\microscope\data_analysis\spectra files\fluorescein_total_txt_csv")  
+nile_red = read_csv(r"C:\Users\wlmd95\OneDrive - Durham University\Documents\PhD\microscope\data_analysis\spectra files\nile_red_total_txt_csv")  
+combined_dataset_1 = read_csv(r"C:\Users\wlmd95\OneDrive - Durham University\Documents\PhD\microscope\data_analysis\spectra files\mixed_spectrum_21_fluorescein_txt_csv")  
+combined_dataset_2 = read_csv(r"C:\Users\wlmd95\OneDrive - Durham University\Documents\PhD\microscope\data_analysis\spectra files\mixed_spectrum_32_fluorescein_txt_csv")
 
+print(fluorescein)
 
-
-fluorescein = import_arrays(r"C:\Users\wlmd95\OneDrive - Durham University\Documents\PhD\L4_Project\MKID project\microscope_data\isabelle_microscope_test\240122\fluorescein_test.txt")  # Replace with the actual file path
-nile_red = import_arrays(r"C:\Users\wlmd95\OneDrive - Durham University\Documents\PhD\L4_Project\MKID project\microscope_data\isabelle_microscope_test\240122\pink_fluoro_txt")  # Replace with the actual file path
-combined_dataset_2 = import_arrays(r"C:\Users\wlmd95\OneDrive - Durham University\Documents\PhD\L4_Project\MKID project\microscope_data\isabelle_microscope_test\240123\nile_red_2_txt")  # Replace with the actual file path
-combined_dataset_1 = import_arrays(r"C:\Users\wlmd95\OneDrive - Durham University\Documents\PhD\L4_Project\MKID project\microscope_data\isabelle_microscope_test\240125\mixed_13_txt")
-kidney = import_arrays(r"C:\Users\wlmd95\OneDrive - Durham University\Documents\PhD\L4_Project\MKID project\microscope_data\\240311\kidney.txt")  # Replace with the actual file pat
+#fluorescein = import_arrays(r"C:\Users\wlmd95\OneDrive - Durham University\Documents\PhD\L4_Project\MKID project\microscope_data\isabelle_microscope_test\240122\fluorescein_test.txt")  # Replace with the actual file path
+#nile_red = import_arrays(r"C:\Users\wlmd95\OneDrive - Durham University\Documents\PhD\L4_Project\MKID project\microscope_data\isabelle_microscope_test\240122\pink_fluoro_txt")  # Replace with the actual file path
+#combined_dataset_2 = import_arrays(r"C:\Users\wlmd95\OneDrive - Durham University\Documents\PhD\L4_Project\MKID project\microscope_data\isabelle_microscope_test\240123\nile_red_2_txt")  # Replace with the actual file path
+#combined_dataset_1 = import_arrays(r"C:\Users\wlmd95\OneDrive - Durham University\Documents\PhD\L4_Project\MKID project\microscope_data\isabelle_microscope_test\240125\mixed_13_txt")
+#kidney = import_arrays(r"C:\Users\wlmd95\OneDrive - Durham University\Documents\PhD\L4_Project\MKID project\microscope_data\\240311\kidney.txt")  # Replace with the actual file pat
 
 #print(fluorescein)
 #print(nile_red)
@@ -58,12 +79,11 @@ kidney = import_arrays(r"C:\Users\wlmd95\OneDrive - Durham University\Documents\
 #print(combined_dataset_1)
 
 #fitting process
-def fit_spectra_strength(variable, coef):
-    spectrum1_strength = variable
-    spectrum2_strength = 1 - spectrum1_strength  # Ensuring the sum is 1
-    #print('shape coef', np.shape(coef))
-    #print('coef', coef)
-    fluorescein, nile_red, combined_spectrum = coef 
+def fit_spectra_strength(variables, coef):
+    spectrum1_strength, spectrum2_strength = variables  # Unpacking both variables
+
+    fluorescein, nile_red, combined_spectrum = coef  # Unpack coefficients
+    
     # Combine the pure spectra according to the provided strengths
     combined_spectrum_model = spectrum1_strength * fluorescein + spectrum2_strength * nile_red
 
@@ -74,7 +94,7 @@ def fit_spectra_strength(variable, coef):
 
 #CHOOSE EITHER BOOTSTRAP OR MONTE CARLO
 
-def monte_carlo_estimate_errors(fitting_function, initial_guess, data, num_simulations=1000, noise_scale = 100):
+def monte_carlo_estimate_errors(fitting_function, initial_guess, data, num_simulations=1000, noise_scale = 1000):
     optimized_parameters = []
     for _ in range(num_simulations):
         # Perturb the data by adding random noise
@@ -85,7 +105,7 @@ def monte_carlo_estimate_errors(fitting_function, initial_guess, data, num_simul
         
         # Perform the optimization process on the perturbed data
         result = minimize(fitting_function, initial_guess, args=coef,
-                          method='TNC', bounds=((0, 1),), tol=1e-6, #TNC needed for bounding
+                          method='SLSQP', bounds = [(0, 1), (0, 1)], tol=1e-6, #TNC needed for bounding
                           constraints={'type': 'eq', 'fun': constraint_sum_to_one},
                           options={'disp': False})
         
@@ -98,15 +118,19 @@ def monte_carlo_estimate_errors(fitting_function, initial_guess, data, num_simul
     return parameter_errors
 
 # Constraint function to ensure the sum of spectrum strengths equals 1
+'''
 def constraint_sum_to_one(variables):
     spectrum1_strength, spectrum2_strength = variables
     return spectrum1_strength + spectrum2_strength - 1
+'''
+def constraint_sum_to_one(variables):
+    return sum(variables) - 1
 
 #print('fluoro', fluorescein)
 plt.plot(fluorescein[0], fluorescein[1], color = 'g')
 plt.plot(nile_red[0], nile_red[1], color = 'r')
 plt.plot(combined_dataset_1[0], combined_dataset_1[1], color = 'b')
-#plt.plot(combined_dataset_2[0], combined_dataset_2[1], color = 'b')
+plt.plot(combined_dataset_2[0], combined_dataset_2[1], color = 'darkblue')
 plt.show()
 
 fluorescein_x = fluorescein[0]
@@ -125,7 +149,7 @@ combined_dataset_1y_normalised = (combined_dataset_1y - min(combined_dataset_1y)
 combined_dataset_2y_normalised = (combined_dataset_2y - min(combined_dataset_2y)) / (max(combined_dataset_2y) - min(combined_dataset_2y))
 
 # Initial guess for the strength of the first spectrum
-initial_guess = np.array([0.5])
+initial_guess = np.array([0.5,0.5])
 
 coef = np.array([fluorescein_y_normalised, nile_red_y_normalised, combined_dataset_1y_normalised])
 #print(coef)
@@ -135,11 +159,23 @@ num_simulations = 1000
 noise_scale  = 100
 
 # Perform the fitting using the minimize function from scipy.optimize for combined_dataset_1
+'''
 result_1 = minimize(fit_spectra_strength, initial_guess, args=coef,
-                    method='TNC', bounds=((0, 1),), tol=1e-6,  
+                    method='TNC', bounds = [(0, 1), (0, 1)], tol=1e-6,  
                     constraints={'type': 'eq', 'fun': constraint_sum_to_one},
                     options={'disp': True}
                     )
+'''
+# Perform the fitting using the minimize function from scipy.optimize for combined_dataset_1
+
+
+result_1 = minimize(fit_spectra_strength, initial_guess, args=coef,
+                    method='SLSQP', bounds = [(0, 1), (0, 1)], tol=1e-6,
+                    constraints={'type': 'eq', 'fun': constraint_sum_to_one},
+                    options={'disp': True}
+                    )
+
+
 #print('result 1', result_1.x)
 
 # Perform Monte Carlo error estimation for combined_dataset_1
@@ -147,11 +183,21 @@ parameter_errors_1 = monte_carlo_estimate_errors(fit_spectra_strength, initial_g
                                                  num_simulations=num_simulations, noise_scale=noise_scale)
 
 # Perform the fitting using the minimize function from scipy.optimize for combined_dataset_2
+'''
 result_2 = minimize(fit_spectra_strength, initial_guess, args=coef_2,
-                    method='TNC', bounds=((0, 1),), tol=1e-6,
+                    method='TNC', bounds = [(0, 1), (0, 1)], tol=1e-6,
                     constraints={'type': 'eq', 'fun': constraint_sum_to_one},
                     options={'disp': True}
                     )
+'''
+
+result_2 = minimize(fit_spectra_strength, initial_guess, args=coef_2,
+                    method='SLSQP', bounds = [(0, 1), (0, 1)], tol=1e-6,
+                    constraints={'type': 'eq', 'fun': constraint_sum_to_one},
+                    options={'disp': True}
+                    )
+
+
 
 # Perform Monte Carlo error estimation for combined_dataset_2
 parameter_errors_2 = monte_carlo_estimate_errors(fit_spectra_strength, initial_guess, combined_dataset_2,
