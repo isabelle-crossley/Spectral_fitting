@@ -2,7 +2,7 @@
 """
 Created on Sat Mar 23 13:58:50 2024
 
-@author: isabe
+@author: wlmd95
 """
 
 import os 
@@ -11,6 +11,7 @@ from scipy.optimize import minimize
 import matplotlib.pyplot as plt
 import re
 import csv
+import pandas as pd
 
 
 def chi_squared(observed, expected, error):
@@ -41,31 +42,22 @@ def import_arrays(filepath):
     return arrays[:2]
 
 def read_csv(filename):
-    data = []
-    
-    # Open the file and read the data
-    with open(filename, 'r') as file:
-        reader = csv.reader(file)
-        header = next(reader)  # Skip the header row
-        
-        for row in reader:
-            try:
-                data.append([float(row[0]), float(row[1])])  # Convert to float and append
-            except ValueError:
-                continue  # Skip rows with non-numeric values
+    # Read CSV using pandas
+    df = pd.read_csv(filename)
 
-    # Convert to a numpy array and transpose it to have 2 rows
-    data_array = np.array(data).T
-    
-    return data_array
+    # Ensure the correct columns exist
+    if 'Wavelength' not in df.columns or 'Intensity' not in df.columns:
+        raise ValueError(f"File {filename} does not have the expected columns: 'Wavelength' and 'Intensity'")
+
+    # Convert to numpy array (transpose to match previous format)
+    return df[['Wavelength', 'Intensity']].to_numpy().T
 
 # test data 
-fluorescein = read_csv(r"C:\Users\wlmd95\OneDrive - Durham University\Documents\PhD\microscope\data_analysis\spectra files\fluorescein_total_txt_csv")  
-nile_red = read_csv(r"C:\Users\wlmd95\OneDrive - Durham University\Documents\PhD\microscope\data_analysis\spectra files\nile_red_total_txt_csv")  
-combined_dataset_1 = read_csv(r"C:\Users\wlmd95\OneDrive - Durham University\Documents\PhD\microscope\data_analysis\spectra files\mixed_spectrum_21_fluorescein_txt_csv")  
-combined_dataset_2 = read_csv(r"C:\Users\wlmd95\OneDrive - Durham University\Documents\PhD\microscope\data_analysis\spectra files\mixed_spectrum_32_fluorescein_txt_csv")
+fluorescein = read_csv(r"C:\Users\wlmd95\OneDrive - Durham University\Documents\PhD\microscope\data_analysis\spectra files\fluorescein_mkid.csv")  
+nile_red = read_csv(r"C:\Users\wlmd95\OneDrive - Durham University\Documents\PhD\microscope\data_analysis\spectra files\nile_red_mkid.csv")  
+combined_dataset_1 = read_csv(r"C:\Users\wlmd95\OneDrive - Durham University\Documents\PhD\microscope\data_analysis\spectra files\mixed_spectrum_100_fluorescein_mkid.csv")  
+combined_dataset_2 = read_csv(r"C:\Users\wlmd95\OneDrive - Durham University\Documents\PhD\microscope\data_analysis\spectra files\mixed_spectrum_90_fluorescein_mkid.csv")
 
-print(fluorescein)
 
 #fluorescein = import_arrays(r"C:\Users\wlmd95\OneDrive - Durham University\Documents\PhD\L4_Project\MKID project\microscope_data\isabelle_microscope_test\240122\fluorescein_test.txt")  # Replace with the actual file path
 #nile_red = import_arrays(r"C:\Users\wlmd95\OneDrive - Durham University\Documents\PhD\L4_Project\MKID project\microscope_data\isabelle_microscope_test\240122\pink_fluoro_txt")  # Replace with the actual file path
@@ -73,10 +65,6 @@ print(fluorescein)
 #combined_dataset_1 = import_arrays(r"C:\Users\wlmd95\OneDrive - Durham University\Documents\PhD\L4_Project\MKID project\microscope_data\isabelle_microscope_test\240125\mixed_13_txt")
 #kidney = import_arrays(r"C:\Users\wlmd95\OneDrive - Durham University\Documents\PhD\L4_Project\MKID project\microscope_data\\240311\kidney.txt")  # Replace with the actual file pat
 
-#print(fluorescein)
-#print(nile_red)
-#print(combined_dataset_2)
-#print(combined_dataset_1)
 
 #fitting process
 def fit_spectra_strength(variables, coef):
@@ -98,7 +86,7 @@ def monte_carlo_estimate_errors(fitting_function, initial_guess, data, num_simul
     optimized_parameters = []
     for _ in range(num_simulations):
         # Perturb the data by adding random noise
-        noise = np.random.normal(loc=0, scale=noise_scale, size=data.shape)  # Adjust scale as needed
+        noise = np.random.normal(loc=0, scale=np.sqrt(np.abs(data)), size=data.shape)
         perturbed_data = data + noise
         perturbed_data = np.array(perturbed_data)
         coef = np.array([fluorescein, nile_red, perturbed_data])
@@ -147,6 +135,14 @@ fluorescein_y_normalised = (fluorescein_y - min(fluorescein_y)) / (max(fluoresce
 nile_red_y_normalised = (nile_red_y - min(nile_red_y)) / (max(nile_red_y) - min(nile_red_y))
 combined_dataset_1y_normalised = (combined_dataset_1y - min(combined_dataset_1y)) / (max(combined_dataset_1y) - min(combined_dataset_1y))
 combined_dataset_2y_normalised = (combined_dataset_2y - min(combined_dataset_2y)) / (max(combined_dataset_2y) - min(combined_dataset_2y))
+
+print(len(fluorescein_y_normalised))
+print(len(nile_red_y_normalised))
+print(len(combined_dataset_1y_normalised))
+
+plt.plot(fluorescein_x, fluorescein_y)
+plt.plot(nile_red_x, nile_red_y)
+plt.show()
 
 # Initial guess for the strength of the first spectrum
 initial_guess = np.array([0.5,0.5])
@@ -219,13 +215,16 @@ fluorescein, nile_red, combined_spectrum = coef
 #print('fluoro', fluorescein)
 # Combine the pure spectra according to the provided strengths
 combined_spectrum_model = optimized_strength_spectrum1_1 * fluorescein + optimized_strength_spectrum2_1 * nile_red
+combined_spectrum_model_2 = optimized_strength_spectrum1_2 * fluorescein + optimized_strength_spectrum2_2 * nile_red
 #print('model', combined_spectrum_model)
 # Calculate chi-squared value
 chi2 = chi_squared(combined_spectrum, combined_spectrum_model, (combined_spectrum))
+chi2_2 = chi_squared(combined_spectrum, combined_spectrum_model_2, (combined_spectrum))
 #print('comb', combined_spectrum)
 
 print(f'chi squared = {chi_squared(combined_spectrum, combined_spectrum_model, combined_spectrum[10]**(0.5))}')
 print(f'reduced chi squared = {chi_squared_reduced(combined_spectrum, combined_spectrum_model, combined_spectrum[10]**(0.5))}')
 
-
+print(f'chi squared = {chi_squared(combined_spectrum, combined_spectrum_model_2, combined_spectrum[10]**(0.5))}')
+print(f'reduced chi squared = {chi_squared_reduced(combined_spectrum, combined_spectrum_model_2, combined_spectrum[10]**(0.5))}')
 #new version for github desktop
