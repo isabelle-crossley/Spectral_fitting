@@ -10,6 +10,7 @@ import matplotlib.pyplot as plt
 from scipy.special import wofz
 from scipy.ndimage import gaussian_filter1d
 import os
+from datetime import datetime
 
 # Define function to generate Voigt profiles (Gaussian + Lorentzian)
 def voigt(x, center, fwhm_g, fwhm_l, amplitude=1):
@@ -82,18 +83,15 @@ wavelengths = np.linspace(400, 800, 200)
 
 # Define Fluorescein spectrum parameters
 fluorescein_params = {
-    'excitation_peak': 498, 'emission_peak': 517,
-    'exc_fwhm_g': 15, 'exc_fwhm_l': 10,
+    'emission_peak': 517,
     'em_fwhm_g': 23, 'em_fwhm_l': 15,
     'qy': 0.79
 }
 
 # Generate Fluorescein excitation and emission spectra
-fluorescein_exc = voigt(wavelengths, fluorescein_params['excitation_peak'], fluorescein_params['exc_fwhm_g'], fluorescein_params['exc_fwhm_l'])
 fluorescein_em = voigt(wavelengths, fluorescein_params['emission_peak'], fluorescein_params['em_fwhm_g'], fluorescein_params['em_fwhm_l'])
-fluorescein_exc = fluorescein_exc / np.max(fluorescein_exc) * 100
 fluorescein_em = fluorescein_em / np.max(fluorescein_em) * 100 * fluorescein_params['qy']
-fluorescein_spectrum = fluorescein_exc + fluorescein_em
+fluorescein_spectrum = fluorescein_em
 
 # Apply MKID noise and resolution effects
 fluorescein_spectrum_noisy = add_mkid_noise(fluorescein_spectrum, wavelength_range=wavelengths)
@@ -101,18 +99,15 @@ fluorescein_spectrum_mkid = apply_mkid_resolution(fluorescein_spectrum_noisy, wa
 
 # Define Nile Red spectrum parameters
 nile_red_params = {
-    'excitation_peak': 559, 'emission_peak': 635,
-    'exc_fwhm_g': 70, 'exc_fwhm_l': 30,
+    'emission_peak': 635,
     'em_fwhm_g': 50, 'em_fwhm_l': 25,
     'qy': 0.7
 }
 
 # Generate Nile Red excitation and emission spectra
-nile_red_exc = voigt(wavelengths, nile_red_params['excitation_peak'], nile_red_params['exc_fwhm_g'], nile_red_params['exc_fwhm_l'])
 nile_red_em = voigt(wavelengths, nile_red_params['emission_peak'], nile_red_params['em_fwhm_g'], nile_red_params['em_fwhm_l'])
-nile_red_exc = nile_red_exc / np.max(nile_red_exc) * 100
 nile_red_em = nile_red_em / np.max(nile_red_em) * 100 * nile_red_params['qy']
-nile_red_spectrum = nile_red_exc + nile_red_em
+nile_red_spectrum = nile_red_em
 
 # Apply MKID noise and resolution effects
 nile_red_spectrum_noisy = add_mkid_noise(nile_red_spectrum, wavelength_range=wavelengths)
@@ -152,22 +147,30 @@ for ax, ratio, spectrum in zip(axes.ravel(), ratios, mixed_spectra_mkid):
 
 fig.suptitle('MKID-Simulated Fluorescein-Nile Red Mixed Spectra', fontsize=16)
 plt.xlabel('Wavelength (nm)')
-plt.ylabel('Summed Intensity')
+plt.ylabel('Intensity')
 plt.tight_layout(rect=[0, 0, 1, 0.96]) 
 plt.show()
 
 def save_spectrum(filename, wavelengths, intensity):
     """
-    Saves wavelength & intensity arrays to a CSV file inside the 'spectra files' folder.
+    Saves wavelength & intensity arrays to a CSV file inside the 'spectra files' folder,
+    appending the current date (YYMMDD) to the filename.
 
     Parameters:
     - filename (str): Name of the output CSV file (automatically appends .csv if missing).
     - wavelengths (array-like): Wavelength values.
     - intensity (array-like): Corresponding intensity values.
     """
+    # Get today's date in YYMMDD format
+    date_str = datetime.today().strftime("%y%m%d")
+
     # Ensure filename has a .csv extension
     if not filename.lower().endswith(".csv"):
         filename += ".csv"
+
+    # Insert date before file extension
+    name, ext = os.path.splitext(filename)
+    filename = f"{name}_{date_str}{ext}"
 
     # Create directory if it doesn't exist
     folder_name = "spectra files"
@@ -175,7 +178,7 @@ def save_spectrum(filename, wavelengths, intensity):
 
     # Sanitize filename to prevent invalid characters
     filename = "".join(c if c.isalnum() or c in (" ", "_", "-", ".") else "_" for c in filename)
-    
+
     # Define file path
     file_path = os.path.join(folder_name, filename)
 
@@ -187,8 +190,8 @@ def save_spectrum(filename, wavelengths, intensity):
         print(f"Saved: {file_path}")
     except Exception as e:
         print(f"Error saving file: {e}")
-        
-# Save summed spectra
+
+# Save summed spectra with date in filename
 save_spectrum("fluorescein_mkid.csv", wavelengths, fluorescein_spectrum_mkid)
 save_spectrum("nile_red_mkid.csv", wavelengths, nile_red_spectrum_mkid)
 
