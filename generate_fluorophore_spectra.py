@@ -9,6 +9,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 from scipy.special import wofz
 import os
+from datetime import datetime
 
 # Define function to generate Voigt profiles (Gaussian + Lorentzian)
 def voigt(x, center, fwhm_g, fwhm_l, amplitude=1):
@@ -54,76 +55,51 @@ def add_noise(spectrum, quantum_efficiency=0.1, dark_current=0, read_noise=0, in
 
 # Wavelength range (in nm)
 wavelengths = np.linspace(400, 800, 201) 
+
 # Fluorescein parameters
-fluorescein_excitation_peak = 498
 fluorescein_emission_peak = 517
-fluorescein_exc_fwhm_g = 15  # Gaussian FWHM for excitation
-fluorescein_exc_fwhm_l = 10  # Lorentzian FWHM for excitation
 fluorescein_em_fwhm_g = 23  # Gaussian FWHM for emission
 fluorescein_em_fwhm_l = 15  # Lorentzian FWHM for emission
 fluorescein_qy = 0.79  # Quantum yield EtOH
 
 # Nile Red parameters
-nile_red_excitation_peak = 559
 nile_red_emission_peak = 635
-nile_red_exc_fwhm_g = 70  # Gaussian FWHM for excitation
-nile_red_exc_fwhm_l = 30  # Lorentzian FWHM for excitation
 nile_red_em_fwhm_g = 50  # Gaussian FWHM for emission
 nile_red_em_fwhm_l = 25  # Lorentzian FWHM for emission
 nile_red_qy = 0.7  # Quantum yield
 
 # Simulate the spectra using Voigt profiles
-fluorescein_excitation = voigt(wavelengths, fluorescein_excitation_peak, fluorescein_exc_fwhm_g, fluorescein_exc_fwhm_l)
 fluorescein_emission = voigt(wavelengths, fluorescein_emission_peak, fluorescein_em_fwhm_g, fluorescein_em_fwhm_l) 
-nile_red_excitation = voigt(wavelengths, nile_red_excitation_peak, nile_red_exc_fwhm_g, nile_red_exc_fwhm_l)
 nile_red_emission = voigt(wavelengths, nile_red_emission_peak, nile_red_em_fwhm_g, nile_red_em_fwhm_l) 
 
 # Normalize the spectra to make the excitation peaks 100
-fluorescein_excitation = fluorescein_excitation / np.max(fluorescein_excitation) * 100
 fluorescein_emission = fluorescein_emission / np.max(fluorescein_emission) * 100 * fluorescein_qy
-nile_red_excitation = nile_red_excitation / np.max(nile_red_excitation) * 100
 nile_red_emission = nile_red_emission / np.max(nile_red_emission) * 100 * nile_red_qy
 
 # Apply noise to all the spectra
-fluorescein_excitation_noisy = add_noise(fluorescein_excitation)
 fluorescein_emission_noisy = add_noise(fluorescein_emission)
-nile_red_excitation_noisy = add_noise(nile_red_excitation)
 nile_red_emission_noisy = add_noise(nile_red_emission)
 
 # Compute the sum of noisy excitation and emission spectra
-fluorescein_total_noisy = fluorescein_excitation_noisy + fluorescein_emission_noisy
-nile_red_total_noisy = nile_red_excitation_noisy + nile_red_emission_noisy
+fluorescein_total_noisy = fluorescein_emission_noisy
+nile_red_total_noisy = nile_red_emission_noisy
 
-# Create the figure and subplots
-fig, axes = plt.subplots(2, 1, figsize=(10, 12))
+# Create the figure
+fig, ax = plt.subplots(figsize=(10, 6))
 
-# --- First Plot: Individual Spectra ---
-axes[0].plot(wavelengths, fluorescein_excitation_noisy, label="Fluorescein Excitation (498 nm)", color='green', linestyle='--')
-axes[0].plot(wavelengths, fluorescein_emission_noisy, label="Fluorescein Emission (517 nm)", color='green')
-axes[0].plot(wavelengths, nile_red_excitation_noisy, label="Nile Red Excitation (559 nm)", color='red', linestyle='--')
-axes[0].plot(wavelengths, nile_red_emission_noisy, label="Nile Red Emission (635 nm)", color='red')
+# Plot the noisy spectra
+ax.plot(wavelengths, fluorescein_total_noisy, label="Fluorescein (Exc + Em)", color='green')
+ax.plot(wavelengths, nile_red_total_noisy, label="Nile Red (Exc + Em)", color='red')
 
-axes[0].set_ylim(0, 125)
-axes[0].set_title('Noisy Fluorescence Spectra of Fluorescein and Nile Red (Voigt Profile)')
-axes[0].set_xlabel('Wavelength (nm)')
-axes[0].set_xlim(400, 800)
-axes[0].set_ylabel('Intensity')
-axes[0].legend()
-axes[0].grid(True)
+# Formatting
+ax.set_ylim(0, 100)
+ax.set_title('Noisy Emission Spectra')
+ax.set_xlabel('Wavelength (nm)')
+ax.set_xlim(400, 800)
+ax.set_ylabel('Intensity')
+ax.legend()
+ax.grid(True)
 
-# --- Second Plot: Summed Noisy Spectra ---
-axes[1].plot(wavelengths, fluorescein_total_noisy, label="Fluorescein (Exc + Em)", color='green')
-axes[1].plot(wavelengths, nile_red_total_noisy, label="Nile Red (Exc + Em)", color='red')
-
-axes[1].set_ylim(0, 200)
-axes[1].set_title('Noisy Summed Excitation and Emission Spectra')
-axes[1].set_xlabel('Wavelength (nm)')
-axes[1].set_xlim(400, 800)
-axes[1].set_ylabel('Summed Intensity')
-axes[1].legend()
-axes[1].grid(True)
-
-plt.tight_layout()
 plt.show()
 
 # --- Third Plot: Mixtures of Fluorescein and Nile Red ---
@@ -139,33 +115,39 @@ for ax, ratio, spectrum in zip(axes.ravel(), ratios, mixed_spectra_noisy):
 
 fig.suptitle('Noisy Fluorescein-Nile Red Mixed Spectra', fontsize=16)
 plt.xlabel('Wavelength (nm)')
-plt.ylabel('Summed Intensity')
+plt.ylabel('Intensity')
 plt.tight_layout(rect=[0, 0, 1, 0.96])
 plt.show()
 
 
 def save_spectrum(filename, wavelengths, intensity):
     """
-    Saves wavelength & intensity arrays to a CSV file inside the 'spectra files' folder.
+    Saves wavelength & intensity arrays to a CSV file inside the 'spectra files' folder,
+    appending the current date (YYMMDD) to the filename.
 
     Parameters:
     - filename (str): Name of the output CSV file (automatically appends .csv if missing).
     - wavelengths (array-like): Wavelength values.
     - intensity (array-like): Corresponding intensity values.
     """
+    # Get today's date in YYMMDD format
+    date_str = datetime.today().strftime("%y%m%d")
+
     # Ensure filename has a .csv extension
     if not filename.lower().endswith(".csv"):
         filename += ".csv"
+
+    # Insert date before file extension
+    name, ext = os.path.splitext(filename)
+    filename = f"{name}_{date_str}{ext}"
 
     # Create directory if it doesn't exist
     folder_name = "spectra files"
     os.makedirs(folder_name, exist_ok=True)
 
     # Sanitize filename to prevent invalid characters
-    #filename = "".join(c if c.isalnum() or c in (" ", "_", "-") else "_" for c in filename)
     filename = "".join(c if c.isalnum() or c in (" ", "_", "-", ".") else "_" for c in filename)
 
-    
     # Define file path
     file_path = os.path.join(folder_name, filename)
 
@@ -177,7 +159,7 @@ def save_spectrum(filename, wavelengths, intensity):
         print(f"Saved: {file_path}")
     except Exception as e:
         print(f"Error saving file: {e}")
-        
+
 # Save summed spectra
 save_spectrum("fluorescein_total.csv", wavelengths, fluorescein_total_noisy)
 save_spectrum("nile_red_total.csv", wavelengths, nile_red_total_noisy)
