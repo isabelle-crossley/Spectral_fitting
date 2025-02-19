@@ -12,10 +12,13 @@ import matplotlib.pyplot as plt
 import re
 import csv
 import pandas as pd
+import glob
+
+epsilon = 1e-10
 
 
 def chi_squared(observed, expected, error):
-    return np.sum((observed - expected) ** 2 / error**2)
+    return np.sum((observed - expected) ** 2 / (error**2 + epsilon))
 
 def chi_squared_reduced(observed, expected, error):
     return chi_squared(observed, expected, error)/np.size(observed)
@@ -46,17 +49,17 @@ def read_csv(filename):
     df = pd.read_csv(filename)
 
     # Ensure the correct columns exist
-    if 'Wavelength' not in df.columns or 'Intensity' not in df.columns:
-        raise ValueError(f"File {filename} does not have the expected columns: 'Wavelength' and 'Intensity'")
+    if 'Wavelength' not in df.columns or 'Intensity' not in df.columns or 'Error' not in df.columns:
+        raise ValueError(f"File {filename} does not have the expected columns: 'Wavelength' and 'Intensity' and 'Error'")
 
     # Convert to numpy array (transpose to match previous format)
-    return df[['Wavelength', 'Intensity']].to_numpy().T
+    return df[['Wavelength', 'Intensity', 'Error']].to_numpy()
 
 # test data 
-fluorescein = read_csv(r"C:\Users\wlmd95\OneDrive - Durham University\Documents\PhD\microscope\data_analysis\spectra files\fluorescein_mkid_250212.csv")  
-nile_red = read_csv(r"C:\Users\wlmd95\OneDrive - Durham University\Documents\PhD\microscope\data_analysis\spectra files\nile_red_mkid_250212.csv")  
-combined_dataset_1 = read_csv(r"C:\Users\wlmd95\OneDrive - Durham University\Documents\PhD\microscope\data_analysis\spectra files\mixed_spectrum_100_fluorescein_mkid_250212.csv")  
-combined_dataset_2 = read_csv(r"C:\Users\wlmd95\OneDrive - Durham University\Documents\PhD\microscope\data_analysis\spectra files\mixed_spectrum_90_fluorescein_mkid_250212.csv")
+fluorescein = read_csv(r"C:\Users\wlmd95\OneDrive - Durham University\Documents\PhD\microscope\data_analysis\spectra_files\fluorescein_total_250218.csv")  
+nile_red = read_csv(r"C:\Users\wlmd95\OneDrive - Durham University\Documents\PhD\microscope\data_analysis\spectra_files\nile_red_total_250218.csv")  
+combined_dataset_1 = read_csv(r"C:\Users\wlmd95\OneDrive - Durham University\Documents\PhD\microscope\data_analysis\spectra_files\mixed_spectrum_29_fluorescein_250218.csv")  
+combined_dataset_2 = read_csv(r"C:\Users\wlmd95\OneDrive - Durham University\Documents\PhD\microscope\data_analysis\spectra_files\mixed_spectrum_60_fluorescein_250218.csv")
 
 
 #fitting process
@@ -83,10 +86,8 @@ def monte_carlo_estimate_errors(fitting_function, initial_guess, data, num_simul
     optimized_parameters = np.zeros((num_simulations, 3))
 
     for i in range(num_simulations):
-        perturbed_data = data + np.random.normal(0, np.sqrt(np.abs(data)), size=data.shape)
-        coef = np.array([fluorescein, nile_red, perturbed_data])
-
-        result = minimize(fitting_function, initial_guess, args=coef,
+        perturbed_data = data[2] + np.random.normal(0, 0.1 * np.sqrt(np.abs(data[2])), size=data[2].shape)
+        result = minimize(fitting_function, initial_guess, args= data,
                           method='SLSQP', bounds=[(0, 1)] * 3, tol=1e-6, 
                           constraints={'type': 'eq', 'fun': constraint_sum_to_one},
                           options={'disp': False})
@@ -98,93 +99,66 @@ def monte_carlo_estimate_errors(fitting_function, initial_guess, data, num_simul
 # Constraint function to ensure the sum of spectrum strengths equals 1
 
 def constraint_sum_to_one(variables):
-    return sum(variables) - 1
+    return np.abs(sum(variables) - 1) - 1e-6 # relaxed constraint
 
 
+def process_spectra(directory, data_type="simulated", num_simulations = 1000, noise_scale = 100):
+    """
+    Processes spectra data from a directory
+    """
+    
+    if data_type == "simulated":
+        files = glob.glob(f"{directory}/mixed_spectrum_*.csv")
+        fluorescein_file = glob.glob(f"{directory}/fluorescein_total_*.csv")
+        nile_red_file = glob.glob(f"{directory}/nile_red_total_*.csv")
+        read_function = read_csv  # Use read_csv for simulated data
+    elif data_type == "experimental":
+        files = glob.glob(f"{directory}/mixed_spectrum*.txt")
+        fluorescein_file = glob.glob(f"{directory}/fluorescein*.txt")
+        nile_red_file = glob.glob(f"{directory}/nile_red*.txt")
+        read_function = import_arrays  # Use import_arrays for experimental data
+    else:
+        raise ValueError("Invalid data_type. Choose 'simulated' or 'experimental'.")
 
-fluorescein_x = fluorescein[0]
-fluorescein_y = fluorescein[1]
-nile_red_x = nile_red[0]
-nile_red_y = nile_red[1]
-combined_dataset_1x = combined_dataset_1[0]
-combined_dataset_1y = combined_dataset_1[1]
-combined_dataset_2x = combined_dataset_2[0]
-combined_dataset_2y = combined_dataset_2[1]
+    if not fluorescein_file or not nile_red_file:
+        raise FileNotFoundError("Fluorescein or Nile Red spectrum file not found.")
 
-# Normalise
-fluorescein_y_normalised = (fluorescein_y - min(fluorescein_y)) / (max(fluorescein_y) - min(fluorescein_y))
-nile_red_y_normalised = (nile_red_y - min(nile_red_y)) / (max(nile_red_y) - min(nile_red_y))
-combined_dataset_1y_normalised = (combined_dataset_1y - min(combined_dataset_1y)) / (max(combined_dataset_1y) - min(combined_dataset_1y))
-combined_dataset_2y_normalised = (combined_dataset_2y - min(combined_dataset_2y)) / (max(combined_dataset_2y) - min(combined_dataset_2y))
-
-
-# Initial guess for the strength of the first spectrum
-initial_guess = np.array([0.4,0.4,0.1])
-
-coef = np.array([fluorescein_y_normalised, nile_red_y_normalised, combined_dataset_1y_normalised])
-#print(coef)
-coef_2 = np.array([fluorescein_y_normalised, nile_red_y_normalised, combined_dataset_2y_normalised])
-
-num_simulations = 1000
-noise_scale  = 100
-
-# Perform the fitting using the minimize function from scipy.optimize for combined_dataset_1
-
-result_1 = minimize(fit_spectra_strength, initial_guess, args=coef,
-                    method='SLSQP', bounds = [(0, 1), (0, 1), (0, 1)], tol=1e-6,
-                    constraints={'type': 'eq', 'fun': constraint_sum_to_one},
-                    options={'disp': True}
-                    )
-
-# Perform Monte Carlo error estimation for combined_dataset_1
-parameter_errors_1 = monte_carlo_estimate_errors(fit_spectra_strength, initial_guess, combined_dataset_1,
-                                                 num_simulations=num_simulations, noise_scale=noise_scale)
-
-# Perform the fitting using the minimize function from scipy.optimize for combined_dataset_2
-
-result_2 = minimize(fit_spectra_strength, initial_guess, args=coef_2,
-                    method='SLSQP', bounds = [(0, 1), (0, 1), (0, 1)], tol=1e-6,
-                    constraints={'type': 'eq', 'fun': constraint_sum_to_one},
-                    options={'disp': True}
-                    )
-
-# Perform Monte Carlo error estimation for combined_dataset_2
-parameter_errors_2 = monte_carlo_estimate_errors(fit_spectra_strength, initial_guess, combined_dataset_2,
-                                                 num_simulations=num_simulations, noise_scale=noise_scale)
-
-# Extract the optimized strengths for each dataset
-optimized_strength_spectrum1_1 = result_1.x[0] # fluorescein dataset 1
-optimized_strength_spectrum2_1 = result_1.x[1]  # nile red dataset 1
-optimized_strength_spectrum3_1 = result_1.x[2]  # background dataset 1
+    fluorescein = read_function(fluorescein_file[0]) #- take first file in list found via glob.glob
+    nile_red = read_function(nile_red_file[0])
+    fluorescein_y = fluorescein[:,1]
+    nile_red_y = nile_red[:,1]
 
 
-optimized_strength_spectrum1_2 = result_2.x[0] # fluorescein dataset 2
-optimized_strength_spectrum2_2 = result_2.x[1]  # nile red dataset 2
-optimized_strength_spectrum3_2 = result_2.x[2]  # background dataset 2
- 
-# Print the optimized strengths and their errors for each dataset
-print(f'Optimized strength for dataset 1 - Fluorescein: {optimized_strength_spectrum1_1} ± {parameter_errors_1[0]}, '
-      f'Nile red: {optimized_strength_spectrum2_1} ± {parameter_errors_1[1]}, '
-      f'Background: {optimized_strength_spectrum3_1} ± {parameter_errors_1[2]}')
+    # Normalize spectra
+    fluorescein_y_normalised = (fluorescein_y - min(fluorescein_y)) / (max(fluorescein_y) - min(fluorescein_y))
+    nile_red_y_normalised = (nile_red_y - min(nile_red_y)) / (max(nile_red_y) - min(nile_red_y))
 
-print(f'Optimized strength for dataset 2 - Fluorescein: {optimized_strength_spectrum1_2} ± {parameter_errors_2[0]}, '
-      f'Nile red: {optimized_strength_spectrum2_2} ± {parameter_errors_2[1]}, '
-      f'Background: {optimized_strength_spectrum3_2} ± {parameter_errors_2[2]}')
+    initial_guess = np.array([0.45, 0.45, 0.1])
 
+    for file in files:
+        dataset = read_function(file)
+        combined_y = dataset[:,1]
+        combined_y_normalised = (combined_y - min(combined_y)) / (max(combined_y) - min(combined_y) + epsilon)
+  
+        coef = np.array([fluorescein_y_normalised, nile_red_y_normalised, combined_y_normalised])
 
-fluorescein, nile_red, combined_spectrum = coef 
-#print('fluoro', fluorescein)
-# Combine the pure spectra according to the provided strengths
-combined_spectrum_model = optimized_strength_spectrum1_1 * fluorescein + optimized_strength_spectrum2_1 * nile_red
-combined_spectrum_model_2 = optimized_strength_spectrum1_2 * fluorescein + optimized_strength_spectrum2_2 * nile_red
-#print('model', combined_spectrum_model)
-# Calculate chi-squared value
-chi2 = chi_squared(combined_spectrum, combined_spectrum_model, (combined_spectrum))
-chi2_2 = chi_squared(combined_spectrum, combined_spectrum_model_2, (combined_spectrum))
-#print('comb', combined_spectrum)
+        #print(coef)
 
-print(f'chi squared dataset 1 = {chi_squared(combined_spectrum, combined_spectrum_model, combined_spectrum[10]**(0.5))}')
-print(f'reduced chi squared = {chi_squared_reduced(combined_spectrum, combined_spectrum_model, combined_spectrum[10]**(0.5))}')
+        result = minimize(fit_spectra_strength, initial_guess, args=(coef,),
+                          method='SLSQP', bounds=[(0, 1)] * 3, tol=1e-6,
+                          constraints={'type': 'eq', 'fun': constraint_sum_to_one},
+                          options={'disp': True})
 
-print(f'chi squared dataset 2 = {chi_squared(combined_spectrum, combined_spectrum_model_2, combined_spectrum[10]**(0.5))}')
-print(f'reduced chi squared = {chi_squared_reduced(combined_spectrum, combined_spectrum_model_2, combined_spectrum[10]**(0.5))}')
+        parameter_errors = monte_carlo_estimate_errors(fit_spectra_strength, initial_guess, coef,
+                                                         num_simulations=num_simulations, noise_scale=noise_scale)
+        
+        combined_spectrum_model = result.x[0] * fluorescein_y_normalised + result.x[1] * nile_red_y_normalised
+
+        print(f'Optimized strength for {file} - Fluorescein: {result.x[0]} ± {parameter_errors[0]}, '
+              f'Nile red: {result.x[1]} ± {parameter_errors[1]}, '
+              f'Background: {result.x[2]} ± {parameter_errors[2]}')
+        print(f'chi squared dataset 1 = {chi_squared(combined_y, combined_spectrum_model, combined_y[10]**(0.5))}')
+        print(f'reduced chi squared = {chi_squared_reduced(combined_y_normalised, combined_spectrum_model, combined_y_normalised[10]**(0.5))}')
+
+# Example usage:
+process_spectra("C:\\Users\\wlmd95\\OneDrive - Durham University\\Documents\\PhD\\microscope\\data_analysis\\spectra_files")
