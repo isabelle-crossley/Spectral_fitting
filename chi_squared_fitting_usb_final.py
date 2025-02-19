@@ -134,6 +134,8 @@ def process_spectra(directory, data_type="simulated", num_simulations = 1000, no
     nile_red_y_normalised = (nile_red_y - min(nile_red_y)) / (max(nile_red_y) - min(nile_red_y))
 
     initial_guess = np.array([0.45, 0.45, 0.1])
+    
+    results = [] 
 
     for file in files:
         dataset = read_function(file)
@@ -153,12 +155,35 @@ def process_spectra(directory, data_type="simulated", num_simulations = 1000, no
                                                          num_simulations=num_simulations, noise_scale=noise_scale)
         
         combined_spectrum_model = result.x[0] * fluorescein_y_normalised + result.x[1] * nile_red_y_normalised
+        
+        reduced_chi_sq = chi_squared_reduced(combined_y_normalised, combined_spectrum_model, combined_y_normalised[10]**0.5)
+        
+        spectrum_number = os.path.basename(file).split("_")[2].split(".")[0]
 
         print(f'Optimized strength for {file} - Fluorescein: {result.x[0]} ± {parameter_errors[0]}, '
               f'Nile red: {result.x[1]} ± {parameter_errors[1]}, '
               f'Background: {result.x[2]} ± {parameter_errors[2]}')
         print(f'chi squared dataset 1 = {chi_squared(combined_y, combined_spectrum_model, combined_y[10]**(0.5))}')
         print(f'reduced chi squared = {chi_squared_reduced(combined_y_normalised, combined_spectrum_model, combined_y_normalised[10]**(0.5))}')
+        
+        # Store results
+        results.append([
+            spectrum_number,
+            f"{result.x[0]:.4f} ± {parameter_errors[0]:.4f}",
+            f"{result.x[1]:.4f} ± {parameter_errors[1]:.4f}",
+            f"{reduced_chi_sq:.4f}"
+        ])
+
+        # Convert results to a DataFrame and save as CSV
+        results_df = pd.DataFrame(results, columns=[
+            "Fraction of Fluorescein (%)",
+            "Fluorescein Value ± Error",
+            "Nile Red Value ± Error",
+           "Reduced Chi Squared"
+        ])
+        
+        output_file = os.path.join(directory, "spectra_analysis_results.csv")
+        results_df.to_csv(output_file, index=False)
 
 # Example usage:
 process_spectra("C:\\Users\\wlmd95\\OneDrive - Durham University\\Documents\\PhD\\microscope\\data_analysis\\spectra_files")
