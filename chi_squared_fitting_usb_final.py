@@ -14,7 +14,7 @@ import csv
 import pandas as pd
 import glob
 
-epsilon = 1e-10
+epsilon = 0.001
 
 
 def chi_squared(observed, expected, error):
@@ -56,16 +56,17 @@ def read_csv(filename):
     return df[['Wavelength', 'Intensity', 'Error']].to_numpy()
 
 # test data 
-fluorescein = read_csv(r"C:\Users\wlmd95\OneDrive - Durham University\Documents\PhD\microscope\data_analysis\spectra_files\fluorescein_total_250306.csv")  
-nile_red = read_csv(r"C:\Users\wlmd95\OneDrive - Durham University\Documents\PhD\microscope\data_analysis\spectra_files\nile_red_total_250306.csv")  
-combined_dataset_1 = read_csv(r"C:\Users\wlmd95\OneDrive - Durham University\Documents\PhD\microscope\data_analysis\spectra_files\mixed_spectrum_29_fluorescein_250306.csv")  
-combined_dataset_2 = read_csv(r"C:\Users\wlmd95\OneDrive - Durham University\Documents\PhD\microscope\data_analysis\spectra_files\mixed_spectrum_60_fluorescein_250306.csv")
+fluorescein = read_csv(r"C:\Users\wlmd95\OneDrive - Durham University\Documents\PhD\microscope\data_analysis\spectra_files\fluorescein_total_250312.csv")  
+nile_red = read_csv(r"C:\Users\wlmd95\OneDrive - Durham University\Documents\PhD\microscope\data_analysis\spectra_files\nile_red_total_250312.csv")  
+combined_dataset_1 = read_csv(r"C:\Users\wlmd95\OneDrive - Durham University\Documents\PhD\microscope\data_analysis\spectra_files\mixed_spectrum_29_fluorescein_250312.csv")  
+combined_dataset_2 = read_csv(r"C:\Users\wlmd95\OneDrive - Durham University\Documents\PhD\microscope\data_analysis\spectra_files\mixed_spectrum_60_fluorescein_250312.csv")
 
 
 
 #fitting process
 def fit_spectra_strength(variables, coef, error):
-    spectrum1_strength, spectrum2_strength, background_strength = variables  # Added background_strength
+    #spectrum1_strength, spectrum2_strength, background_strength = variables  # Added background_strength
+    spectrum1_strength, spectrum2_strength = variables  # Added background_strength
 
     fluorescein, nile_red, combined_spectrum = coef  
     
@@ -73,7 +74,7 @@ def fit_spectra_strength(variables, coef, error):
     combined_spectrum_model = (
         spectrum1_strength * fluorescein 
         + spectrum2_strength * nile_red 
-        + background_strength      # need to sort out background strength
+        #+ background_strength       # need to sort out background strength
     )
 
     # Calculate chi-squared value
@@ -102,7 +103,7 @@ def monte_carlo_estimate_errors(fitting_function, initial_guess, data, error, fl
         coef = np.array([fluorescein[:], nile_red[:], perturbed_data])
         
         result = minimize(fitting_function, initial_guess, args=(coef, error),
-                          method='SLSQP', bounds=[(0, 1)] * 3, tol=1e-6, 
+                          method='L-BFGS-B', bounds=[(0, 1)] * 2, tol=1e-6, 
                           #constraints={'type': 'eq', 'fun': constraint_sum_to_one},
                           options={'disp': False})
 
@@ -153,12 +154,9 @@ def process_spectra(directory, data_type="simulated", num_simulations = 1000, de
     nile_red_y = nile_red[:,1]
     nile_red_err = nile_red[:,2]
 
+    #initial_guess = np.array([0.475, 0.475, 0.05])
+    initial_guess = np.array([0.5, 0.5])
 
-    # Normalize spectra
-    fluorescein_y_normalised = (fluorescein_y - min(fluorescein_y)) / (max(fluorescein_y) - min(fluorescein_y)) *100
-    nile_red_y_normalised = (nile_red_y - min(nile_red_y)) / (max(nile_red_y) - min(nile_red_y)) *100
-
-    initial_guess = np.array([0.475, 0.475, 0.05])
     
     results = [] 
 
@@ -166,32 +164,31 @@ def process_spectra(directory, data_type="simulated", num_simulations = 1000, de
         dataset = read_function(file)
         combined_y = dataset[:,1]
         error = dataset[:,2]
-        combined_y_normalised = (combined_y - min(combined_y)) / (max(combined_y) - min(combined_y) + epsilon) *100
-        error_normalised = error / (max(combined_y) - min(combined_y) + epsilon) * 100
         
   
-        coef = np.array([fluorescein_y_normalised, nile_red_y_normalised, combined_y_normalised])
+        coef = np.array([fluorescein_y, nile_red_y, combined_y])
 
         #print(coef)
 
-        result = minimize(fit_spectra_strength, initial_guess, args=(coef, error_normalised),
-                          method='SLSQP', bounds=[(0, 1)] * 3, tol=1e-6,
+        result = minimize(fit_spectra_strength, initial_guess, args=(coef, error),
+                          method='L-BFGS-B', bounds=[(0, 1)] * 2, tol=1e-6,
                           constraints={'type': 'eq', 'fun': constraint_sum_to_one},
                           options={'disp': True})
 
-        parameter_errors = monte_carlo_estimate_errors(fit_spectra_strength, initial_guess, combined_y_normalised, error_normalised, fluorescein_y_normalised, nile_red_y_normalised,
+        parameter_errors = monte_carlo_estimate_errors(fit_spectra_strength, initial_guess, combined_y, error, fluorescein_y, nile_red_y,
                                                          num_simulations=num_simulations)
         
-        combined_spectrum_model = result.x[0] * fluorescein_y_normalised + result.x[1] * nile_red_y_normalised
+        combined_spectrum_model = result.x[0] * fluorescein_y + result.x[1] * nile_red_y
         
-        reduced_chi_sq = chi_squared_reduced(combined_y_normalised, combined_spectrum_model, error_normalised)  # fix this
+        reduced_chi_sq = chi_squared_reduced(combined_y, combined_spectrum_model, error)  # fix this
         
         spectrum_number = os.path.basename(file).split("_")[2].split(".")[0]
 
         print(f'Optimized strength for {file} - Fluorescein: {result.x[0]} ± {parameter_errors[0]}, '
               f'Nile red: {result.x[1]} ± {parameter_errors[1]}, '
-              f'Background: {result.x[2]} ± {parameter_errors[2]}')
-        print(f'chi squared dataset 1 = {chi_squared(combined_y_normalised, combined_spectrum_model,  error_normalised)}')
+              #f'Background: {result.x[2]} ± {parameter_errors[2]}')
+              )
+        print(f'chi squared dataset 1 = {chi_squared(combined_y, combined_spectrum_model,  error)}')
         print(f'reduced chi squared = {reduced_chi_sq}')
         
         #store results
@@ -199,7 +196,7 @@ def process_spectra(directory, data_type="simulated", num_simulations = 1000, de
             spectrum_number,
             f"{result.x[0]:.4f} ± {parameter_errors[0]:.4f}",
             f"{result.x[1]:.4f} ± {parameter_errors[1]:.4f}",
-            f"{result.x[2]:.4f} ± {parameter_errors[2]:.4f}",
+           # f"{result.x[2]:.4f} ± {parameter_errors[2]:.4f}",
             f"{reduced_chi_sq:.4f}"
         ])
 
@@ -208,7 +205,7 @@ def process_spectra(directory, data_type="simulated", num_simulations = 1000, de
             "Fraction of Fluorescein (%)",
             "Fluorescein Value ± Error",
             "Nile Red Value ± Error",
-            "Background Value ± Error",
+            #"Background Value ± Error",
            "Reduced Chi Squared"
         ])
         
@@ -218,11 +215,11 @@ def process_spectra(directory, data_type="simulated", num_simulations = 1000, de
         spectrum_number = os.path.basename(file).split("_")[2].split(".")[0]
 
         # Contribution to chi-squared for each wavelength
-        chi_sq_contribution = ((combined_y_normalised - combined_spectrum_model) ** 2) / (10 ** 2)
+        chi_sq_contribution = ((combined_y - combined_spectrum_model) ** 2) / (error**2 + epsilon)
 
         # Plot chi-squared contributions
         plt.figure(figsize=(8, 5))
-        plt.plot(dataset[:, 0], chi_sq_contribution, marker='o', linestyle='-', color='r', label='Chi-squared Contribution')
+        plt.scatter(dataset[:, 0], chi_sq_contribution, marker='x', linestyle='-', color='r', label='Chi-squared Contribution')
         plt.axhline(y=1, color='darkblue', linestyle='--')
         plt.xlabel('Wavelength')
         plt.ylabel('Chi-squared Contribution')
@@ -232,10 +229,15 @@ def process_spectra(directory, data_type="simulated", num_simulations = 1000, de
         plt.show()
         #plt.savefig(os.path.join(directory, f'chi_squared_contribution_{spectrum_number}.png'))
         plt.close()
+        
+        #print("Combined Y :", combined_y)
+        #print("Error :", error)
+        #print("Combined Spectrum Model:", combined_spectrum_model)
+        #print("Chi-Squared Contribution:", ((combined_y - combined_spectrum_model) ** 2) / (error**2 + epsilon))
 
 
 #example:
-process_spectra("C:\\Users\\wlmd95\\OneDrive - Durham University\\Documents\\PhD\\microscope\\data_analysis\\spectra_files", detector = 'usb', date = '250306')
+process_spectra("C:\\Users\\wlmd95\\OneDrive - Durham University\\Documents\\PhD\\microscope\\data_analysis\\spectra_files", detector = 'usb', date = '250317')
 
 
 #chi squared contribution
