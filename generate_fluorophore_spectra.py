@@ -10,89 +10,86 @@ import matplotlib.pyplot as plt
 from scipy.special import wofz
 import os
 from datetime import datetime
+import pandas as pd
 
-# Define function to generate Voigt profiles (Gaussian + Lorentzian)
-def voigt(x, center, fwhm_g, fwhm_l, amplitude=1):
-    sigma = fwhm_g / (2 * np.sqrt(2 * np.log(2)))  # Convert Gaussian FWHM to standard deviation
-    gamma = fwhm_l / 2  # Lorentzian half-width at half-maximum
-    z = (x - center + 1j * gamma) / (sigma * np.sqrt(2))
-    return amplitude * np.real(wofz(z)) / (sigma * np.sqrt(2 * np.pi))
+#https://omlc.org/spectra/PhotochemCAD/html/007.html source for spectra
+
+df_f = np.loadtxt(r'C:\Users\wlmd95\OneDrive - Durham University\Documents\PhD\microscope\data_analysis\fluorescein_emission.txt')
+df_nr = np.loadtxt(r'C:\Users\wlmd95\OneDrive - Durham University\Documents\PhD\microscope\data_analysis\nile_red_emission.txt')
+
+wavelength_nr = df_nr[:, 0][20:-200]  
+intensity_nr = df_nr[:, 1][20:-200] 
+
+
+wavelength_f = df_f[:, 0]  
+intensity_f = df_f[:, 1]
+
+
 
 # Function to add noise to spectra
-def add_noise(spectrum, quantum_efficiency=0.1, dark_current=0, read_noise=0, integration_time=1, background = 5):
+def add_noise(spectrum, quantum_efficiency=0.8, dark_current=0.1, read_noise=0.15, integration_time=10, background = 20):
     """
-    Adds simulated noise to a spectrum.
+    Adds simulated noise to a spectrum
 
     Parameters:
-    spectrum (array): The original spectrum (photon counts or arbitrary units).
-    quantum_efficiency (float): Detector quantum efficiency (fraction, e.g., 0.9).
-    dark_current (float): Dark current noise level (electrons per second per pixel).
-    read_noise (float): Readout noise (electrons per pixel).
-    integration_time (float): Integration time in seconds.
+    spectrum (array): original spectrum 
+    quantum_efficiency (float): Detector quantum efficiency 0.8
+    dark_current (float): dark current noise level, electrons per sec per pixel 0.1
+    read_noise (float): readout noise 0.15
+    integration_time (float): int time, seconds 100
 
     Returns:
     array: Noisy spectrum
     """
     # Add background contribution
     signal_with_background = spectrum + background
-    
-    # Shot noise (Photon noise, poisson)
-    shot_noise = np.random.normal(scale=np.sqrt(quantum_efficiency * np.abs(spectrum)))
 
-    # Dark current noise (Poisson-like, approximated as Gaussian)
-    dark_noise = np.random.normal(scale=np.sqrt(dark_current * integration_time), size=spectrum.shape)
+    # Convert to detected photon counts based on quantum efficiency
+    detected_signal = np.random.poisson(lam=quantum_efficiency * np.maximum(signal_with_background, 1))
 
-    # Readout noise (Fixed Gaussian noise)
+    # Dark current noise (Poisson distributed)
+    dark_counts = np.random.poisson(lam=dark_current * integration_time, size=spectrum.shape)
+
+    # Readout noise (Gaussian)
     readout_noise = np.random.normal(scale=read_noise, size=spectrum.shape)
 
-    # Total noise
-    total_noise = np.sqrt(shot_noise**2 + dark_noise**2 + readout_noise**2)
+    # Total noisy signal
+    noisy_spectrum = detected_signal + dark_counts + readout_noise
 
-    # Add noise to the original spectrum
-    noisy_spectrum = signal_with_background + total_noise
+    # Expected noise estimate
+    expected_shot_noise = np.sqrt(quantum_efficiency * np.maximum(signal_with_background, 1))
+    #print('shot noise', expected_shot_noise)
+    expected_dark_noise = np.sqrt(dark_current * integration_time)
+    print('dark', expected_dark_noise)
+    expected_background_noise = np.sqrt(background)  # Poisson noise from background
+    print(expected_background_noise)
+    expected_noise = np.sqrt(expected_shot_noise**2 + expected_dark_noise**2 + read_noise**2 + expected_background_noise**2)
 
-    return noisy_spectrum
+    return noisy_spectrum, expected_noise
 
 # Wavelength range (in nm)
-wavelengths = np.linspace(400, 800, 201) 
+wavelengths = np.linspace(480, 700, 441)
 
-# Fluorescein parameters
-fluorescein_emission_peak = 517
-fluorescein_em_fwhm_g = 23  # Gaussian FWHM for emission
-fluorescein_em_fwhm_l = 15  # Lorentzian FWHM for emission
-fluorescein_qy = 0.79  # Quantum yield EtOH
-
-# Nile Red parameters
-nile_red_emission_peak = 635
-nile_red_em_fwhm_g = 50  # Gaussian FWHM for emission
-nile_red_em_fwhm_l = 25  # Lorentzian FWHM for emission
-nile_red_qy = 0.7  # Quantum yield
-
-# Simulate the spectra using Voigt profiles
-fluorescein_emission = voigt(wavelengths, fluorescein_emission_peak, fluorescein_em_fwhm_g, fluorescein_em_fwhm_l) 
-nile_red_emission = voigt(wavelengths, nile_red_emission_peak, nile_red_em_fwhm_g, nile_red_em_fwhm_l) 
+#print(wavelengths_f)
 
 # Normalize the spectra to make the excitation peaks 100
-fluorescein_emission = fluorescein_emission / np.max(fluorescein_emission) * 100 * fluorescein_qy
-nile_red_emission = nile_red_emission / np.max(nile_red_emission) * 100 * nile_red_qy
-
-# Apply noise to all the spectra
-fluorescein_emission_noisy = add_noise(fluorescein_emission)
-nile_red_emission_noisy = add_noise(nile_red_emission)
-
-# Compute the sum of noisy excitation and emission spectra
-fluorescein_total_noisy = fluorescein_emission_noisy
-nile_red_total_noisy = nile_red_emission_noisy
+fluorescein_emission = intensity_f / np.max(intensity_f) * 10000
+nile_red_emission = intensity_nr / np.max(intensity_nr) * 10000
 
 # Create the figure
 fig, ax = plt.subplots(figsize=(10, 6))
 
 # Plot the noisy spectra
-ax.plot(wavelengths, fluorescein_total_noisy, label="Fluorescein (Exc + Em)", color='green')
-ax.plot(wavelengths, nile_red_total_noisy, label="Nile Red (Exc + Em)", color='red')
+ax.plot(wavelengths, fluorescein_emission, label="Fluorescein", color='green')
+ax.plot(wavelengths, nile_red_emission, label="Nile Red", color='red')
+
+
+fluorescein_error = add_noise(fluorescein_emission)[1]*1.5
+nile_red_error = add_noise(nile_red_emission)[1]*1.5
+
 
 # Formatting
-ax.set_ylim(0, 100)
+ax.set_ylim(0, 12000)
 ax.set_title('Noisy Emission Spectra')
 ax.set_xlabel('Wavelength (nm)')
 ax.set_xlim(400, 800)
@@ -102,14 +99,21 @@ ax.grid(True)
 
 plt.show()
 
+fluorescein_noisy = add_noise(fluorescein_emission)[0]
+nile_red_noisy = add_noise(nile_red_emission)[0]
+
 # --- Third Plot: Mixtures of Fluorescein and Nile Red ---
-ratios = np.linspace(1.0, 0, 9)  # 100% fluorescein to 10%
-mixed_spectra_noisy = [(r * fluorescein_total_noisy + (1 - r) * nile_red_total_noisy) for r in ratios]
+ratios = np.linspace(1.0, 0, 11)  # 100% fluorescein to 0%
+mixed_spectra_noisy = [(r * fluorescein_noisy + (1 - r) * nile_red_noisy) for r in ratios]
+mixed_error = [np.sqrt((r * fluorescein_error) ** 2 + ((1 - r) * nile_red_error) ** 2) for r in ratios]
+#print(mixed_spectra_noisy[1])
+#print(mixed_error[1])
 
 # Plot 3x3 grid of noisy mixed spectra
 fig, axes = plt.subplots(3, 3, figsize=(12, 12), sharex=True, sharey=True)
-for ax, ratio, spectrum in zip(axes.ravel(), ratios, mixed_spectra_noisy):
+for ax, ratio, spectrum, error in zip(axes.ravel(), ratios, mixed_spectra_noisy, mixed_error):
     ax.plot(wavelengths, spectrum, color='purple')
+    ax.fill_between(wavelengths, spectrum - error, spectrum + error, color='purple', alpha=0.3, label='Error')
     ax.set_title(f'{int(ratio * 100)}% Fluorescein')
     ax.grid(True)
 
@@ -120,7 +124,7 @@ plt.tight_layout(rect=[0, 0, 1, 0.96])
 plt.show()
 
 
-def save_spectrum(filename, wavelengths, intensity):
+def save_spectrum(filename, wavelengths, intensity, error): #add error as a variable soon
     """
     Saves wavelength & intensity arrays to a CSV file inside the 'spectra files' folder,
     appending the current date (YYMMDD) to the filename.
@@ -142,7 +146,7 @@ def save_spectrum(filename, wavelengths, intensity):
     filename = f"{name}_{date_str}{ext}"
 
     # Create directory if it doesn't exist
-    folder_name = "spectra files"
+    folder_name = "spectra_files"
     os.makedirs(folder_name, exist_ok=True)
 
     # Sanitize filename to prevent invalid characters
@@ -153,20 +157,20 @@ def save_spectrum(filename, wavelengths, intensity):
 
     try:
         # Stack and save as CSV
-        data = np.column_stack((wavelengths, intensity))
-        np.savetxt(file_path, data, delimiter=",", header="Wavelength,Intensity", comments='')
+        data = np.column_stack((wavelengths, intensity, error))
+        np.savetxt(file_path, data, delimiter=",", header="Wavelength,Intensity,Error", comments='')
 
         print(f"Saved: {file_path}")
     except Exception as e:
         print(f"Error saving file: {e}")
 
 # Save summed spectra
-save_spectrum("fluorescein_total.csv", wavelengths, fluorescein_total_noisy)
-save_spectrum("nile_red_total.csv", wavelengths, nile_red_total_noisy)
+save_spectrum("fluorescein_total.csv", wavelengths, fluorescein_emission * 0.8, fluorescein_error)
+save_spectrum("nile_red_total.csv", wavelengths, nile_red_emission *0.8, nile_red_error)
 
 # Save mixed spectra with labels
-for i, (ratio, spectrum) in enumerate(zip(ratios, mixed_spectra_noisy)):
+for i, (ratio, spectrum, error) in enumerate(zip(ratios, mixed_spectra_noisy, mixed_error)):
     filename = f"mixed_spectrum_{int(ratio * 100)}_fluorescein.csv"
-    save_spectrum(filename, wavelengths, spectrum)
+    save_spectrum(filename, wavelengths, spectrum, error)
 
 print("Spectra saved successfully.")
