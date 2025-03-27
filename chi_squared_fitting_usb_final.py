@@ -13,6 +13,8 @@ import re
 import csv
 import pandas as pd
 import glob
+from scipy.stats import chi2
+
 
 epsilon = 0.001
 
@@ -24,9 +26,9 @@ def chi_squared_reduced(observed, expected, error):
     return chi_squared(observed, expected, error)/np.size(observed)
 
 # Load pure spectra and combined datasets
-def import_arrays(filepath):
+def import_arrays(filename):
     # Read the text from file
-    with open(filepath, 'r') as file:
+    with open(filename, 'r') as file:
         text = file.read()
 
     # Pattern to extract arrays
@@ -54,13 +56,6 @@ def read_csv(filename):
 
     # Convert to numpy array (transpose to match previous format)
     return df[['Wavelength', 'Intensity', 'Error']].to_numpy()
-
-# test data 
-fluorescein = read_csv(r"C:\Users\wlmd95\OneDrive - Durham University\Documents\PhD\microscope\data_analysis\spectra_files\fluorescein_total_250312.csv")  
-nile_red = read_csv(r"C:\Users\wlmd95\OneDrive - Durham University\Documents\PhD\microscope\data_analysis\spectra_files\nile_red_total_250312.csv")  
-combined_dataset_1 = read_csv(r"C:\Users\wlmd95\OneDrive - Durham University\Documents\PhD\microscope\data_analysis\spectra_files\mixed_spectrum_29_fluorescein_250312.csv")  
-combined_dataset_2 = read_csv(r"C:\Users\wlmd95\OneDrive - Durham University\Documents\PhD\microscope\data_analysis\spectra_files\mixed_spectrum_60_fluorescein_250312.csv")
-
 
 
 #fitting process
@@ -117,10 +112,61 @@ def monte_carlo_estimate_errors(fitting_function, initial_guess, data, error, fl
 # Constraint function to ensure the sum of spectrum strengths equals 1
 
 def constraint_sum_to_one(variables):
-    return np.abs(sum(variables) - 1) - 1e-2 # relaxed constraint
+    return np.abs(sum(variables) - 1) - 1e-3 # relaxed constraint
+
+def plot_chi_squared_contours(best_fit_params, hess_inv_matrix, param_names, confidence_levels=[0.68, 0.95, 0.997]):
+    """
+    Plots chi-squared confidence contours for two parameters.
+
+    Parameters:
+    - result: The result object from scipy.optimize.minimize.
+    - param_names: A list of two parameter names for axis labels.
+    - confidence_levels: Confidence levels corresponding to 1σ, 2σ, and 3σ.
+    """
+    
+    param_uncertainties = np.sqrt(np.diag(hess_inv_matrix))  # Standard errors
+
+    # Create a grid around the best-fit parameters
+    num_points = 100
+    p1_range = np.linspace(best_fit_params[0] - 3*param_uncertainties[0], 
+                           best_fit_params[0] + 3*param_uncertainties[0], num_points)
+    p2_range = np.linspace(best_fit_params[1] - 3*param_uncertainties[1], 
+                           best_fit_params[1] + 3*param_uncertainties[1], num_points)
+    
+    P1, P2 = np.meshgrid(p1_range, p2_range)
+
+    # Compute chi-squared values
+    delta_chi2 = np.zeros_like(P1)
+    cov_inv = np.linalg.inv(hess_inv_matrix[:2, :2])  # Inverse of 2x2 covariance submatrix
+
+    for i in range(num_points):
+        for j in range(num_points):
+            delta = np.array([P1[i, j] - best_fit_params[0], 
+                              P2[i, j] - best_fit_params[1]])
+            delta_chi2[i, j] = delta.T @ cov_inv @ delta  # Quadratic form
+
+    # Confidence levels based on chi-squared distribution for 2 parameters
+    chi2_levels = chi2.ppf(confidence_levels, df=2)
+
+    # Plot contours
+    plt.figure(figsize=(7, 6))
+    contour = plt.contour(P1, P2, delta_chi2, levels=chi2_levels, colors=['blue', 'green', 'red'])
+    plt.clabel(contour, fmt={chi2_levels[0]: '1σ', chi2_levels[1]: '2σ', chi2_levels[2]: '3σ'}, inline=True)
+    
+    # Plot best-fit point
+    plt.scatter(best_fit_params[0], best_fit_params[1], color='black', marker='x', label='Best Fit')
+    
+    # Labels and title
+    plt.xlabel(param_names[0])
+    plt.ylabel(param_names[1])
+    plt.title("Chi-Squared Confidence Contours")
+    plt.legend()
+    plt.grid(True)
+    plt.show()
 
 
-def process_spectra(directory, data_type="simulated", num_simulations = 1000, detector = 'mkid', date = '250306'):
+#simulated rn
+def process_spectra(directory, data_type="simulated", num_simulations = 1000, detector = 'mkid', date = '250306', plot_contours=False):
     """
     processes spectra data from a directory
     """
@@ -137,9 +183,9 @@ def process_spectra(directory, data_type="simulated", num_simulations = 1000, de
         nile_red_file = glob.glob(f"{directory}/nile_red{suffix}_{date_pattern}.csv")
         read_function = read_csv  # Use read_csv for simulated data
     elif data_type == "experimental":
-        files = glob.glob(f"{directory}/mixed_spectrum{suffix}_{date_pattern}.txt")
-        fluorescein_file = glob.glob(f"{directory}/fluorescein{suffix}_{date_pattern}.txt")
-        nile_red_file = glob.glob(f"{directory}/nile_red{suffix}_{date_pattern}.txt")
+        files = glob.glob(f"{directory}/mixed_{suffix}.txt")
+        fluorescein_file = glob.glob(f"{directory}/fluorescein{suffix}.txt")
+        nile_red_file = glob.glob(f"{directory}/nile_red{suffix}.txt")
         read_function = import_arrays  # Use import_arrays for experimental data
     else:
         raise ValueError("Invalid data_type. Choose 'simulated' or 'experimental'.")
@@ -173,14 +219,20 @@ def process_spectra(directory, data_type="simulated", num_simulations = 1000, de
         result = minimize(fit_spectra_strength, initial_guess, args=(coef, error),
                           method='L-BFGS-B', bounds=[(0, 1)] * 2, tol=1e-6,
                           constraints={'type': 'eq', 'fun': constraint_sum_to_one},
-                          options={'disp': True})
+                          options={'disp': False})
 
         parameter_errors = monte_carlo_estimate_errors(fit_spectra_strength, initial_guess, combined_y, error, fluorescein_y, nile_red_y,
                                                          num_simulations=num_simulations)
         
+        param_uncertainty = np.sqrt(np.diag(result.hess_inv.todense()))
+        hess_inv_matrix = result.hess_inv.todense()  # Convert to dense if it's sparse
+        cond_number = np.linalg.cond(hess_inv_matrix)
+
+        
         combined_spectrum_model = result.x[0] * fluorescein_y + result.x[1] * nile_red_y
         
-        reduced_chi_sq = chi_squared_reduced(combined_y, combined_spectrum_model, error)  # fix this
+        reduced_chi_sq = chi_squared_reduced(combined_y, combined_spectrum_model, error)    
+
         
         spectrum_number = os.path.basename(file).split("_")[2].split(".")[0]
 
@@ -194,17 +246,28 @@ def process_spectra(directory, data_type="simulated", num_simulations = 1000, de
         #store results
         results.append([
             spectrum_number,
-            f"{result.x[0]:.4f} ± {parameter_errors[0]:.4f}",
-            f"{result.x[1]:.4f} ± {parameter_errors[1]:.4f}",
-           # f"{result.x[2]:.4f} ± {parameter_errors[2]:.4f}",
+            f"{result.x[0]:.4f}",
+            f"{parameter_errors[0]:.4f}",
+            f"{param_uncertainty[0]:.4f}",
+            f"{cond_number:.4f}",
+            f"{result.x[1]:.4f}",
+            f"{parameter_errors[1]:.4f}",
+            f"{param_uncertainty[1]:.4f}",
+            f"{cond_number:.4f}",
             f"{reduced_chi_sq:.4f}"
         ])
 
         # convert results to df and save as csv
         results_df = pd.DataFrame(results, columns=[
             "Fraction of Fluorescein (%)",
-            "Fluorescein Value ± Error",
-            "Nile Red Value ± Error",
+            "Fluorescein Value",
+            "Monte Carlo Error",
+            "minimize error",
+            "Condition Number",
+            "Nile Red Value",
+            "Monte Carlo Error",
+            "minimize error",
+            "Condition Number",
             #"Background Value ± Error",
            "Reduced Chi Squared"
         ])
@@ -227,17 +290,132 @@ def process_spectra(directory, data_type="simulated", num_simulations = 1000, de
         plt.legend()
         plt.grid()
         plt.show()
-        #plt.savefig(os.path.join(directory, f'chi_squared_contribution_{spectrum_number}.png'))
         plt.close()
         
-        #print("Combined Y :", combined_y)
-        #print("Error :", error)
-        #print("Combined Spectrum Model:", combined_spectrum_model)
-        #print("Chi-Squared Contribution:", ((combined_y - combined_spectrum_model) ** 2) / (error**2 + epsilon))
+        if plot_contours:
+            #plot_chi_squared_contours(output_file, result, param_names=["Fluorescein", "Nile Red"])
+            plot_chi_squared_contours(
+                best_fit_params=result.x,
+                hess_inv_matrix=result.hess_inv.todense(),
+                param_names=["Fluorescein", "Nile Red"]
+            )
+        
+
 
 
 #example:
-process_spectra("C:\\Users\\wlmd95\\OneDrive - Durham University\\Documents\\PhD\\microscope\\data_analysis\\spectra_files", detector = 'usb', date = '250317')
+process_spectra("C:\\Users\\wlmd95\\OneDrive - Durham University\\Documents\\PhD\\microscope\\data_analysis\\spectra_files", detector = 'usb', date = '250318', plot_contours=True)
+
+#experimental
+def process_single_spectrum(file, fluorescein_file, nile_red_file):
+    fluorescein = import_arrays(fluorescein_file)
+    nile_red = import_arrays(nile_red_file)
+    dataset = import_arrays(file)
+    
+    fluorescein_y, nile_red_y = fluorescein[1], nile_red[1]
+    #combined_y, error = dataset[1], dataset[2]
+    combined_y = dataset[1]
+
+    
+    initial_guess = [0.5, 0.5]
+    coef = np.array([fluorescein_y, nile_red_y, combined_y])
+    
+    result = minimize(fit_spectra_strength, initial_guess, args=(coef, combined_y**0.5),
+                      method='L-BFGS-B', bounds=[(0, 1)] * 2, tol=1e-6, options={'disp': False})
+    
+    optimized_strengths = result.x
+    combined_spectrum_model = optimized_strengths[0] * fluorescein_y + optimized_strengths[1] * nile_red_y
+    reduced_chi_sq = chi_squared_reduced(combined_y, combined_spectrum_model, combined_y**0.5)
+    
+    # Plot results
+    plt.figure(figsize=(8, 5))
+    plt.plot(dataset[0], combined_y, 'b-', label='Experimental Data')
+    plt.plot(dataset[0], combined_spectrum_model, 'r--', label='Fitted Model')
+    plt.xlabel('Wavelength')
+    plt.ylabel('Intensity')
+    plt.title(f'Spectral Fit (Reduced Chi-Sq: {reduced_chi_sq:.4f})')
+    plt.legend()
+    plt.grid()
+    plt.show()
+    
+    print(f'Optimized strengths: Fluorescein = {optimized_strengths[0]:.4f}, Nile Red = {optimized_strengths[1]:.4f}')
+    print(f'Reduced Chi-Squared: {reduced_chi_sq:.4f}')
+    
+#experimental 
+def process_spectrum_folder(folder_path, fluorescein_file, nile_red_file):
+    fluorescein = import_arrays(fluorescein_file)
+    nile_red = import_arrays(nile_red_file)
+    fluorescein_y, nile_red_y = fluorescein[1], nile_red[1]
+    
+    files = sorted([f for f in os.listdir(folder_path) if f.startswith("mixed_") and f.endswith(".txt")])
+    
+    for file in files:
+       file_path = os.path.join(folder_path, file)
+       dataset = import_arrays(file_path)
+       combined_y = dataset[1]
+        
+       initial_guess = [0.5, 0.5]
+       coef = np.array([fluorescein_y, nile_red_y, combined_y])
+        
+       result = minimize(fit_spectra_strength, initial_guess, args=(coef, combined_y**0.5),
+                          method='SLSQP', bounds=[(0, 1)] * 2, tol=1e-6,
+                          constraints={'type': 'eq', 'fun': constraint_sum_to_one}, options={'disp': False})
+       
+        
+       optimized_strengths = result.x
+       combined_spectrum_model = optimized_strengths[0] * fluorescein_y + optimized_strengths[1] * nile_red_y
+       reduced_chi_sq = chi_squared_reduced(combined_y, combined_spectrum_model, combined_y**0.5)
+       
+       chi_squared_contributions = ((combined_y - combined_spectrum_model) ** 2) / (np.maximum(combined_y**0.5, 1e-4)**2)
+
+       '''
+       # Plot results
+       plt.figure(figsize=(8, 5))
+       plt.plot(dataset[0], combined_y, 'b-', label='Experimental Data')
+       plt.plot(dataset[0], combined_spectrum_model, 'r--', label='Fitted Model')
+       plt.xlabel('Wavelength')
+       plt.ylabel('Intensity')
+       plt.title(f'{file} (Reduced Chi-Sq: {reduced_chi_sq:.4f})')
+       plt.legend()
+       plt.grid()
+       plt.show()
+       '''
+       # Plot results
+       fig, ax = plt.subplots(2, 1, figsize=(8, 8))
+
+        # Spectrum fit plot
+       ax[0].plot(dataset[0], combined_y, 'b-', label='Experimental Data')
+       ax[0].plot(dataset[0], combined_spectrum_model, 'r--', label='Fitted Model')
+       ax[0].set_xlabel('Wavelength')
+       ax[0].set_ylabel('Intensity')
+       ax[0].set_title(f'{file} (Reduced Chi-Sq: {reduced_chi_sq:.4f})')
+       ax[0].legend()
+       ax[0].grid()
+       # Chi-squared contribution plot
+       ax[1].plot(dataset[0], chi_squared_contributions, 'g-', label='Chi-Squared Contribution')
+       ax[1].set_xlabel('Wavelength')
+       ax[1].set_ylabel('Chi-Squared Contribution')
+       ax[1].set_title('Per-Point Contribution to Chi-Squared')
+       ax[1].legend()
+       ax[1].grid()
+       plt.show()
+       
+
+        
+       print(f'File: {file}')
+       print(f'Optimized strengths: Fluorescein = {optimized_strengths[0]:.4f}, Nile Red = {optimized_strengths[1]:.4f}')
+       print(f'Reduced Chi-Squared: {reduced_chi_sq:.4f}\n')
+
+# test data 
+nile_red = r"C:\Users\wlmd95\OneDrive - Durham University\Documents\PhD\L4_Project\MKID project\microscope_data\isabelle_microscope_test\240122\pink_fluoro_txt.txt"
+fluorescein = r"C:\Users\wlmd95\OneDrive - Durham University\Documents\PhD\L4_Project\MKID project\microscope_data\isabelle_microscope_test\240122\fluorescein_test.txt"  
+loc_2 = r"C:\Users\wlmd95\OneDrive - Durham University\Documents\PhD\L4_Project\MKID project\microscope_data\240125\mixed_1_txt.txt"
+loc_3 = r"C:\Users\wlmd95\OneDrive - Durham University\Documents\PhD\L4_Project\MKID project\microscope_data\240125\mixed_2_txt.txt"
+folder_path = r"C:\Users\wlmd95\OneDrive - Durham University\Documents\PhD\L4_Project\MKID project\microscope_data\isabelle_microscope_test\240125"
+
+#process_single_spectrum(loc_2, fluorescein, nile_red)
+
+#process_spectrum_folder(folder_path, fluorescein, nile_red)
 
 
-#chi squared contribution
+
